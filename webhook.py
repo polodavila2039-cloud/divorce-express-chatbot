@@ -46,34 +46,124 @@ def catalog_text():
     return "\n".join(lines)
 
 
+MENU = (
+    "¡Hola! Gracias por contactar a Divorcio Express Saltillo ⚖️\n\n"
+    "Estamos para servirte. ¿En qué te podemos ayudar?\n\n"
+    "Responde con un NÚMERO:\n\n"
+    "1️⃣ - Divorcio Express (mutuo acuerdo)\n"
+    "2️⃣ - Divorcio Incausado (cuando NO quiere firmar)\n"
+    "3️⃣ - Pensión alimenticia (trámite de pensión para menores)\n"
+    "4️⃣ - Fui demandado/a (requiero atención urgente)\n"
+    "5️⃣ - No me dejan ver a mis hijos\n"
+    "6️⃣ - Me llegó citatorio de fiscalía (requiero atención urgente)\n"
+    "7️⃣ - Quiero denunciar violencia de mi pareja\n"
+    "8️⃣ - Requiero tramitar mi acta de Divorcio\n"
+    "9️⃣ - Me gustaría agendar una cita con un abogado\n\n"
+    "Solo escribe el número (1, 2, 3...) y te enviamos la info al instante 👇"
+)
+
+# Respuestas del menú 1-9 de Polo (WhatsApp Business, 2026-11-14).
+# Sin términos exactos de financiamiento: eso lo explica un asesor.
+ANSWERS = {
+    "1": (
+        "Divorcio Exprés (mutuo acuerdo)\n\n"
+        "Es el proceso más rápido y económico para terminar un matrimonio "
+        "cuando ambos cónyuges están de acuerdo. No hay juicio ni conflicto.\n"
+        "En Coahuila toma 30-45 días desde que presentamos la solicitud "
+        "hasta la sentencia final.\n\n"
+        "¿Quieres que te agende una cita con un abogado para revisarlo? "
+        "Escríbeme tu nombre y te pasamos con un asesor."
+    ),
+    "2": (
+        "Divorcio Incausado (cuando NO quiere firmar)\n\n"
+        "Sí te puedes divorciar aunque tu pareja no quiera firmar. "
+        "No necesitas su firma ni su permiso.\n"
+        "En Divorcio Express te ayudamos de forma honesta y profesional, "
+        "rápido y sin conflicto.\n\n"
+        "¿Quieres que te agende una cita con un abogado? "
+        "Escríbeme tu nombre y te pasamos con un asesor."
+    ),
+    "3": (
+        "Pensión alimenticia (trámite de pensión para menores)\n\n"
+        "Tus hijos tienen derecho a recibir pensión, y con gusto les "
+        "ayudamos. Aún estás a tiempo para que tus hijos reciban parte "
+        "del aguinaldo.\n\n"
+        "Estos son nuestros servicios:\n"
+        "1. PENSIÓN ALIMENTICIA — $8,500 MXN\n"
+        "   Tus hijos tienen derecho a recibir pensión, y con gusto les ayudamos.\n\n"
+        "También tenemos financiamiento; un asesor te explica las opciones "
+        "y los pagos.\n"
+        "¿Quieres que te pase con un asesor? Escríbeme tu nombre."
+    ),
+    "4": (
+        "Fui demandado/a — atención urgente\n\n"
+        "No te preocupes, pero no dejes pasar el tiempo: hay plazos que "
+        "se cumplen y es importante contestar a tiempo.\n\n"
+        "Te paso con un asesor de Divorcio Express Saltillo para atención "
+        "urgente. Escríbeme tu nombre y tu teléfono, por favor."
+    ),
+    "5": (
+        "No me dejan ver a mis hijos\n\n"
+        "Lo sentimos mucho, sabemos lo difícil que es. Tienes derecho a "
+        "convivir con tus hijos, y te podemos ayudar a recuperar esa "
+        "convivencia por la vía legal, de forma honesta y profesional.\n\n"
+        "¿Quieres que te agende una cita con un abogado? "
+        "Escríbeme tu nombre y te pasamos con un asesor."
+    ),
+    "6": (
+        "Citatorio de fiscalía — atención urgente\n\n"
+        "No faltes y no dejes pasar el tiempo: es importante atender el "
+        "citatorio con un abogado.\n\n"
+        "Te paso con un asesor de Divorcio Express Saltillo para atención "
+        "urgente. Escríbeme tu nombre y tu teléfono, por favor."
+    ),
+    "7": (
+        "Denunciar violencia de tu pareja\n\n"
+        "Lo sentimos mucho, y lo primero es tu seguridad. Si estás en "
+        "peligro en este momento, llama al 911.\n\n"
+        "Te podemos ayudar a denunciar y a protegerte legalmente. "
+        "Te paso con un asesor de Divorcio Express Saltillo para atención "
+        "urgente. Escríbeme tu nombre y tu teléfono, por favor."
+    ),
+    "8": (
+        "Tramitar tu acta de Divorcio\n\n"
+        "Con gusto te ayudamos a tramitar tu acta de divorcio una vez que "
+        "salga la sentencia.\n\n"
+        "¿Quieres que te agende una cita con un abogado para revisarlo? "
+        "Escríbeme tu nombre y te pasamos con un asesor."
+    ),
+    "9": (
+        "Agendar una cita con un abogado\n\n"
+        "Claro, con gusto te agendo. Solo necesito:\n"
+        "1. Tu nombre completo\n"
+        "2. ¿El divorcio es de mutuo acuerdo? (sí / no / no sé)\n"
+        "3. Tu teléfono para confirmarte la cita\n\n"
+        "En cuanto me los pases, le aviso a nuestro equipo."
+    ),
+}
+
+
 def reply_text(message: str) -> str:
     low = message.strip().lower()
-    if low in ("hola", "buenas", "buenos días", "buenas tardes", "inicio", "menu", "menú"):
-        return (
-            "¡Hola! Soy el asistente de Divorcio Express Saltillo.\n"
-            "Te ayudamos a terminar tu matrimonio de forma rápida, económica "
-            "y sin juicio ni conflicto.\n\n"
-            "¿Qué te gustaría saber?\n"
-            "1. Ver servicios y precios\n"
-            "2. ¿Cuánto tarda el divorcio?\n"
-            "3. Financiamiento\n"
-            "4. Agendar una cita / hablar con un asesor"
-        )
-    if low in ("1", "catalogo", "catálogo", "servicios", "precios", "precio"):
+    if low in ("hola", "buenas", "buenos días", "buenas tardes", "inicio", "menu", "menú", "0"):
+        return MENU
+    if low in ANSWERS:
+        return ANSWERS[low]
+    if low in ("catalogo", "catálogo", "servicios", "precios", "precio"):
         return catalog_text()
-    if low in ("2", "tiempo", "cuánto tarda", "cuanto tarda", "duración", "duracion"):
+    if low in ("tiempo", "cuánto tarda", "cuanto tarda", "duración", "duracion"):
         return (
             "En Coahuila toma 30-45 días desde que presentamos la solicitud "
             "hasta la sentencia final. El tiempo exacto depende de tu caso, "
             "por eso te recomendamos agendar una cita para revisarlo."
         )
-    if low in ("3", "financiamiento", "financiar", "pagos"):
+    if low in ("financiamiento", "financiar", "pagos"):
         return (
             "Sí, tenemos financiamiento. Pregunta por financiamiento y un "
             "asesor te explica las opciones y los pagos.\n"
             "¿Quieres que te pase con un asesor?"
         )
-    if low in ("4", "asesor", "humano", "hablar con alguien", "cita", "agendar"):
+    if low in ("asesor", "humano", "hablar con alguien", "cita", "agendar"):
         return (
             "Perfecto, te paso con un asesor de Divorcio Express Saltillo. "
             "Te atenderá en horario de atención. Gracias por escribirnos."
@@ -84,8 +174,8 @@ def reply_text(message: str) -> str:
             "Te atenderá en horario de atención. Gracias por escribirnos."
         )
     return (
-        "Gracias por tu mensaje. Puedes escribir \"catálogo\" para ver "
-        "nuestros servicios, o preguntar por precio, tiempo o financiamiento."
+        "Gracias por tu mensaje. Puedes escribir \"hola\" para ver el menú "
+        "de opciones (1 a 9), o escribir \"catálogo\" para ver nuestros servicios."
     )
 
 
@@ -124,11 +214,46 @@ def send_whatsapp(to: str, text: str) -> None:
         print("WhatsApp API:", resp.status, resp.read().decode()[:200])
 
 
+PRIVACY_HTML = """<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<title>Política de Privacidad — Divorcio Express Saltillo</title></head>
+<body style="font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 20px">
+<h1>Política de Privacidad — Divorcio Express Saltillo</h1>
+<p>Última actualización: 14 de noviembre de 2026.</p>
+<p>Divorcio Express Saltillo (Saltillo, Coahuila, México) opera un asistente
+automático por WhatsApp para atender a sus clientes.</p>
+<h2>Datos que recopilamos</h2>
+<p>Cuando usted nos escribe por WhatsApp, recibimos su número de teléfono y
+el contenido de sus mensajes, únicamente para contestar su consulta,
+agendar una cita o pasarlo con un asesor.</p>
+<h2>Uso de los datos</h2>
+<p>Sus datos se usan solo para la atención de su caso y no se venden, no se
+comparten con terceros con fines publicitarios y no se usan para ningún
+otro fin.</p>
+<h2>Sus derechos</h2>
+<p>Usted puede pedir en cualquier momento que dejemos de escribirle o que
+eliminemos sus datos, escribiendo "baja" por WhatsApp o llamando a la
+Línea Directa (844) 688-01-88.</p>
+<h2>Contacto</h2>
+<p>Divorcio Express Saltillo — WhatsApp (844) 538-03-91 — Línea Directa
+(844) 688-01-88 — Saltillo, Coahuila, México.</p>
+</body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Verificación del webhook de Meta: ?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...
         from urllib.parse import parse_qs, urlparse
 
+        path = urlparse(self.path).path
+        if path in ("/privacidad", "/privacy", "/politica-de-privacidad"):
+            body = PRIVACY_HTML.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         q = parse_qs(urlparse(self.path).query)
         if (
             q.get("hub.mode", [""])[0] == "subscribe"

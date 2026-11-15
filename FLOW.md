@@ -2,17 +2,39 @@
 # Textos en español, listos para que Polo los apruebe o ajuste.
 # Los precios y los nombres exactos de los productos se llenan
 # con el catálogo; donde dice [PENDIENTE] falta ese dato.
+#
+# Menú 1-9 actualizado 2026-11-14: es el menú del mensaje de
+# bienvenida de WhatsApp Business de Polo (captura 22:33 CST).
+# El bot contesta con ese mismo menú, opción por opción.
 
 ## 1. Saludo inicial (cuando alguien escribe por primera vez o escribe "hola")
 
-> ¡Hola! 👋 Soy el asistente de Divorcio Express Saltillo.
-> Te ayudamos a terminar tu matrimonio de forma rápida, económica y sin juicio ni conflicto.
->
-> ¿Qué te gustaría saber?
-> [1] Ver servicios y precios
-> [2] ¿Cuánto tarda el divorcio?
-> [3] Financiamiento
-> [4] Agendar una cita / hablar con un asesor
+> ¡Hola! Gracias por contactar a Divorcio Express Saltillo ⚖️
+> Estamos para servirte. ¿En qué te podemos ayudar?
+> Responde con un NÚMERO:
+> [1] Divorcio Express (mutuo acuerdo)
+> [2] Divorcio Incausado (cuando NO quiere firmar)
+> [3] Pensión alimenticia (trámite de pensión para menores)
+> [4] Fui demandado/a (requiero atención urgente)
+> [5] No me dejan ver a mis hijos
+> [6] Me llegó citatorio de fiscalía (requiero atención urgente)
+> [7] Quiero denunciar violencia de mi pareja
+> [8] Requiero tramitar mi acta de Divorcio
+> [9] Me gustaría agendar una cita con un abogado
+> Solo escribe el número (1, 2, 3...) y te enviamos la info al instante 👇
+
+## 1b. Respuestas por opción
+> 1: Divorcio Exprés, 30-45 días en Coahuila, sin juicio ni conflicto.
+> 2: Sí te puedes divorciar aunque no quiera firmar.
+> 3: Pensión alimenticia, derecho de los hijos, $8,500 MXN (ver catálogo);
+>    financiamiento solo lo explica un asesor.
+> 4: Demandado/a, atención urgente, no dejar pasar los plazos.
+> 5: No me dejan ver a mis hijos, derecho de convivencia.
+> 6: Citatorio de fiscalía, atención urgente, no faltar.
+> 7: Denunciar violencia, primero la seguridad (911 si hay peligro),
+>    ayuda legal y asesor urgente.
+> 8: Tramitar el acta de divorcio.
+> 9: Agendar cita: nombre, mutuo acuerdo sí/no/no sé, teléfono.
 
 ## 2. Ver servicios y precios
 

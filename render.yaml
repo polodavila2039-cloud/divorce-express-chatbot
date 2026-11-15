@@ -3,7 +3,7 @@ services:
     name: divorcio-express-chatbot
     env: python
     plan: free
-    buildCommand: ""
+    buildCommand: "true"
     startCommand: python3 webhook.py
     envVars:
       - key: PHONE_NUMBER_ID
