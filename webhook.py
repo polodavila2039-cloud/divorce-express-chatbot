@@ -33,7 +33,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 GRAPH_URL = "https://graph.facebook.com/v21.0"
-PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://divorce-express-chatbot.onrender.com").rstrip("/")
+PUBLIC_URL = (os.environ.get("PUBLIC_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+              or "https://divorce-express-chatbot.onrender.com").rstrip("/")
 HANDOFF_HOURS = float(os.environ.get("HANDOFF_HOURS", "24"))
 SESSIONS_PATH = os.environ.get("SESSIONS_PATH", "/tmp/sesiones_chatbot.json")
 
@@ -65,6 +66,17 @@ OFERTA_HORAS = 24
 RECORDATORIO_HORAS = 20
 CITA_PRESENCIAL = 500
 CITA_LLAMADA = 350
+
+
+def en_horario(ahora=None):
+    """True si en este momento hay personal en el despacho."""
+    t = time.gmtime((ahora or time.time()) - 6 * 3600)
+    minutos = t.tm_hour * 60 + t.tm_min
+    if t.tm_wday <= 4:
+        return 9 * 60 + 30 <= minutos < 19 * 60
+    if t.tm_wday == 5:
+        return 9 * 60 + 30 <= minutos < 14 * 60
+    return False
 
 
 def pesos(n):
@@ -243,7 +255,7 @@ ETIQUETAS = [
     ("cita_cuando", "Día y horario"), ("motivo", "Motivo"), ("dudas", "Dudas pendientes"),
     ("horario_contacto", "Horario para contactar"), ("documentos", "Documentos"),
     ("objecion", "Qué lo detiene"), ("situacion", "Situación que describió"),
-    ("interes_adicional", "Otros servicios de interés"),
+    ("interes_adicional", "Otros servicios de interés"), ("origen", "Anuncio de origen"),
 ]
 
 
@@ -296,15 +308,16 @@ def pasar_a_humano(s, texto, venta=False):
     s["opts"] = []
     s["notas_post"] = 0
     print("LEAD " + json.dumps({"tel": s.get("tel"), **s["data"]}, ensure_ascii=False), flush=True)
+    cuando = "en breve" if en_horario() else "en cuanto inicie nuestro horario de atención"
     if venta:
         final = ("🤝 Estás en buenas manos{}. Tomaste la mejor decisión y agradecemos mucho tu "
-                 "preferencia. Nuestro equipo se pondrá en contacto contigo en breve.\n\n"
+                 "preferencia. Nuestro equipo se pondrá en contacto contigo {}.\n\n"
                  "Mientras tanto seguimos aquí: si tienes cualquier duda, escríbela y con gusto "
-                 "te la resolvemos.").format(nm(s))
+                 "te la resolvemos.").format(nm(s), cuando)
     else:
         final = ("🤝 Estás en buenas manos{}. Agradecemos mucho tu confianza. Nuestro equipo se pondrá "
-                 "en contacto contigo en breve.\n\nMientras tanto, si tienes cualquier duda, "
-                 "escríbela por aquí.").format(nm(s))
+                 "en contacto contigo {}.\n\nMientras tanto, si tienes cualquier duda, "
+                 "escríbela por aquí.").format(nm(s), cuando)
     return [M(texto + "\n\n🕘 Nuestro horario de atención es de " + HORARIO),
             M(resumen(s)), M(final)]
 
@@ -403,7 +416,7 @@ class _Menu:
         if op is None:
             return None
         # nuevo asunto: se conserva solo el nombre
-        s["data"] = {"nombre": s["data"]["nombre"]} if s["data"].get("nombre") else {}
+        s["data"] = {k: v for k, v in s["data"].items() if k in ("nombre", "origen", "nombre_whatsapp") and v}
         s["neg"] = 0
         s["inicial"] = None
         s["plan"] = None
@@ -1917,6 +1930,36 @@ def _post_graph(payload):
         return None
 
 
+def marcar_leido(mid):
+    """Marca el mensaje del cliente como leído y muestra 'escribiendo...' mientras se arma la respuesta."""
+    token = os.environ.get("WHATSAPP_TOKEN", "")
+    phone_id = os.environ.get("PHONE_NUMBER_ID", "")
+    if not (token and phone_id and mid):
+        return
+    base = {"messaging_product": "whatsapp", "status": "read", "message_id": mid}
+    for payload in (dict(base, typing_indicator={"type": "text"}), base):
+        req = urllib.request.Request(
+            "{}/{}/messages".format(GRAPH_URL, phone_id), data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", "Authorization": "Bearer " + token}, method="POST")
+        try:
+            urllib.request.urlopen(req, timeout=10).read()
+            return
+        except Exception:  # noqa: BLE001
+            continue
+
+
+def mantener_despierto():
+    """Render (plan gratuito) duerme el servicio sin visitas; una visita propia cada 10 minutos lo evita."""
+    if os.environ.get("MANTENER_DESPIERTO", "1") == "0" or not PUBLIC_URL.startswith("https://"):
+        return
+    while True:
+        time.sleep(600)
+        try:
+            urllib.request.urlopen(PUBLIC_URL + "/salud", timeout=20).read()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def construir_payload(to, m):
     base = {"messaging_product": "whatsapp", "to": to}
     if m.get("buttons"):
@@ -2089,7 +2132,19 @@ def procesar(body):
                 elif tipo in ("image", "document", "video", "sticker", "location", "contacts"):
                     text = "[archivo recibido]"
                 if text:
-                    send_messages(sender, handle_message(sender, text, kind))
+                    marcar_leido(mid)
+                    respuesta = handle_message(sender, text, kind)
+                    ses = SESSIONS.get(sender)
+                    if ses is not None:
+                        ref = msg.get("referral") or {}
+                        origen = ref.get("headline") or ref.get("source_url")
+                        if origen and not ses["data"].get("origen"):
+                            ses["data"]["origen"] = str(origen)[:120]
+                        for c in value.get("contacts", []) or []:
+                            perfil = (c.get("profile") or {}).get("name")
+                            if perfil and c.get("wa_id") == sender:
+                                ses["data"].setdefault("nombre_whatsapp", str(perfil)[:60])
+                    send_messages(sender, respuesta)
     guardar_sesiones()
 
 
@@ -2157,5 +2212,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     cargar_sesiones()
     threading.Thread(target=recordatorios, daemon=True).start()
+    threading.Thread(target=mantener_despierto, daemon=True).start()
     port = int(os.environ.get("PORT", "8000"))
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
