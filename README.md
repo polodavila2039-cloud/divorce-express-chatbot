@@ -13,8 +13,10 @@ botones y listas, agradece cada dato, sigue preguntando y cierra por forma de pa
 4. Planes de pago calculados desde la tabla `PLANES` de `webhook.py`.
    El chat nunca muestra el total; ese desglose lo entrega el equipo.
 5. Pasa a una persona del equipo solo cuando el cliente acepta pagar, pide
-   una cita o es un caso urgente. Después guarda silencio con ese cliente
-   durante `HANDOFF_HOURS` (24 por defecto).
+   una cita o es un caso urgente. Después del pase el bot sigue atento:
+   agradece, pregunta horario de contacto y documentos, contesta dudas y
+   anota en el expediente las que no sabe. Si el cliente de Divorcio Express
+   dice que su pareja quizá no firme, lo redirige a Divorcio Incausado.
 6. "baja" detiene los mensajes; "menú" regresa al menú.
 
 ## Cambiar precios o plazos

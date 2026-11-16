@@ -236,6 +236,7 @@ ETIQUETAS = [
     ("modalidad", "Forma de pago"), ("plan_txt", "Plan elegido"),
     ("metodo", "Medio de pago"), ("cita_tipo", "Tipo de asesoría"),
     ("cita_cuando", "Día y horario"), ("motivo", "Motivo"), ("dudas", "Dudas pendientes"),
+    ("horario_contacto", "Horario para contactar"), ("documentos", "Documentos"),
 ]
 
 
@@ -256,13 +257,22 @@ def resumen(s):
 # ---------------------------------------------------------------------------
 # Pase a humano
 # ---------------------------------------------------------------------------
-def pasar_a_humano(s, texto):
-    s["stage"] = "humano"
-    s["paused_until"] = time.time() + HANDOFF_HOURS * 3600
+def pasar_a_humano(s, texto, venta=False):
+    s["stage"] = "post"
     s["opts"] = []
+    s["notas_post"] = 0
     print("LEAD " + json.dumps({"tel": s.get("tel"), **s["data"]}, ensure_ascii=False), flush=True)
+    if venta:
+        final = ("🤝 Estás en buenas manos{}. Tomaste la mejor decisión y agradecemos mucho tu "
+                 "preferencia. Nuestro equipo se pondrá en contacto contigo en breve.\n\n"
+                 "Mientras tanto seguimos aquí: si tienes cualquier duda, escríbela y con gusto "
+                 "te la resolvemos.").format(nm(s))
+    else:
+        final = ("🤝 Estás en buenas manos{}. Agradecemos mucho tu confianza. Nuestro equipo se pondrá "
+                 "en contacto contigo en breve.\n\nMientras tanto, si tienes cualquier duda, "
+                 "escríbela por aquí.").format(nm(s))
     return [M(texto + "\n\n🕘 Nuestro horario de atención es de " + HORARIO),
-            M(resumen(s))]
+            M(resumen(s)), M(final)]
 
 
 def txt_pago(s, monto):
@@ -377,16 +387,16 @@ class _Menu:
             s["data"]["servicio_nombre"] = "Pensión Alimenticia"
             return ([], "pe_hijos")
         if op == "m4":
-            return (urgente(s, "Fue demandado/a", pedir_foto=True), "humano")
+            return (urgente(s, "Fue demandado/a", pedir_foto=True), "post")
         if op == "m6":
-            return (urgente(s, "Citatorio de fiscalía", pedir_foto=True), "humano")
+            return (urgente(s, "Citatorio de fiscalía", pedir_foto=True), "post")
         if op == "m7":
             s["data"]["motivo"] = "Denunciar violencia de su pareja"
             return (pasar_a_humano(
                 s, "🛡️ Lo primero es tu seguridad. Si estás en peligro en este momento, llama al *911*.\n\n"
                    "Pasamos tu conversación con un abogado de nuestro equipo para atenderte de forma "
                    "urgente. También puedes comunicarte a nuestra línea directa: 📞 *{}*".format(LINEA)),
-                "humano")
+                "post")
         if op == "m5":
             s["data"]["motivo"] = "No le permiten ver a sus hijos"
             return ([M("👨‍👧 Sabemos lo difícil que es. Tienes derecho a convivir con tus hijos y "
@@ -454,7 +464,7 @@ class _CiCuando:
         s["data"]["cita_cuando"] = txt.strip()[:120]
         return (pasar_a_humano(
             s, gracias(s) + "En este momento te referimos con una persona de nuestro equipo "
-               "para confirmar el día y la hora de tu asesoría."), "humano")
+               "para confirmar el día y la hora de tu asesoría."), "post")
 
 
 # ----------------------------- EXPRESS -------------------------------------
@@ -1090,13 +1100,12 @@ class _Duda:
     @staticmethod
     def on(s, op, txt):
         r = faq(s, norm(txt))
-        vuelta = "oferta" if s.get("en_oferta") else "cierre"
         if r:
-            return ([M(r)], vuelta)
+            return ([M(r)], "duda_mas")
         prev = s["data"].get("dudas")
         s["data"]["dudas"] = ((prev + " | ") if prev else "") + txt.strip()[:200]
         return ([M(gracias(s) + "Dejamos anotada tu pregunta en tu expediente para que nuestro "
-                   "equipo jurídico te la responda a detalle según tu caso.")], vuelta)
+                   "equipo jurídico te la responda a detalle según tu caso.")], "duda_mas")
 
 
 # ----------------------------- OFERTA $900 ---------------------------------
@@ -1216,7 +1225,131 @@ class _AccMetodo:
     def on(s, op, txt):
         if op in ("am_ofi", "am_trans"):
             s["data"]["metodo"] = "En oficinas" if op == "am_ofi" else "Transferencia"
-            return (pasar_a_humano(s, txt_pago(s, s.get("monto_inicio") or inicial(s))), "humano")
+            return (pasar_a_humano(s, txt_pago(s, s.get("monto_inicio") or inicial(s)), venta=True), "pv_horario")
+        return None
+
+
+@etapa("pv_horario")
+class _PvHorario:
+    @staticmethod
+    def ask(s):
+        return [M("Para agilizar tu atención{}, ¿en qué *horario* prefieres que te contactemos?".format(nm(s)),
+                  buttons=[("pvh_m", "Por la mañana"), ("pvh_t", "Por la tarde"), ("pvh_c", "Cualquier horario")])]
+
+    @staticmethod
+    def on(s, op, txt):
+        m = {"pvh_m": "Por la mañana", "pvh_t": "Por la tarde", "pvh_c": "Cualquier horario"}
+        if op in m:
+            s["data"]["horario_contacto"] = m[op]
+        elif len(txt.strip()) >= 3 and "?" not in txt:
+            s["data"]["horario_contacto"] = txt.strip()[:80]
+        else:
+            return None
+        return ([], "pv_docs")
+
+
+@etapa("pv_docs")
+class _PvDocs:
+    @staticmethod
+    def ask(s):
+        doc = ("las *actas de nacimiento de tus hijos*" if s.get("servicio") == "pension"
+               else "tu *acta de matrimonio*")
+        return [M(gracias(s) + "Una pregunta más para adelantar tu expediente: ¿ya tienes a la mano {}?".format(doc),
+                  buttons=[("pvd_si", "Sí, la tengo"), ("pvd_no", "Todavía no")])]
+
+    @staticmethod
+    def on(s, op, txt):
+        if op in ("pvd_si", "pvd_no"):
+            s["data"]["documentos"] = "Ya los tiene" if op == "pvd_si" else "Todavía no"
+            extra = ("¡Excelente! Tenlos listos para tu visita."
+                     if op == "pvd_si" else
+                     "No te preocupes, no es necesario para iniciar; nuestro equipo te orienta para obtenerlos.")
+            return ([M(gracias(s) + extra + " Todo quedó anotado en tu expediente. 📁\n\n"
+                       "Si tienes alguna duda, escríbela por aquí y con gusto te atendemos.")], "post")
+        return None
+
+
+@etapa("post")
+class _Post:
+    """Después del pase al equipo: el bot contesta dudas y anota lo que no sabe."""
+    @staticmethod
+    def ask(s):
+        return []
+
+    @staticmethod
+    def on(s, op, txt):
+        low = norm(txt)
+        if not low:
+            return ([], "post")
+        r = faq(s, low)
+        if r:
+            return ([M(r + "\n\n¿Tienes alguna otra duda? Con gusto te atendemos.")], "post")
+        if low in ("gracias", "muchas gracias", "ok gracias", "mil gracias", "gracias muy amable"):
+            return ([M("¡Gracias a ti{}! Estamos para servirte. 🤝".format(nm(s)))], "post")
+        if low in ("hola", "buenas", "buenos dias", "buenas tardes", "buenas noches", "buen dia"):
+            return ([M("¡Hola{}! Seguimos atentos a tu trámite. Nuestro equipo se pondrá en contacto contigo "
+                       "en breve; si tienes alguna duda, escríbela por aquí.".format(nm(s)))], "post")
+        pregunta = "?" in txt or low.split(" ")[0] in PALABRAS_PREGUNTA or "duda" in low or "pregunta" in low
+        if pregunta and s.get("notas_post", 0) < 3:
+            s["notas_post"] = s.get("notas_post", 0) + 1
+            if low in ("tengo una duda", "una duda", "duda", "tengo dudas", "tengo una pregunta", "una pregunta"):
+                return ([M("Con gusto{}. Cuéntanos tu duda y te la resolvemos.".format(nm(s)))], "post")
+            prev = s["data"].get("dudas")
+            s["data"]["dudas"] = ((prev + " | ") if prev else "") + txt.strip()[:200]
+            return ([M(gracias(s) + "Anotamos tu pregunta en tu expediente para que nuestro equipo jurídico "
+                       "te la responda a detalle según tu caso.")], "post")
+        return ([], "post")
+
+
+@etapa("duda_mas")
+class _DudaMas:
+    @staticmethod
+    def ask(s):
+        return [M("¿Tienes alguna otra duda{}?".format(nm(s)),
+                  buttons=[("dm_si", "Sí, otra duda"), ("dm_no", "No, continuar")])]
+
+    @staticmethod
+    def on(s, op, txt):
+        vuelta = "oferta" if s.get("en_oferta") else "cierre"
+        if op == "dm_si":
+            return ([], "duda")
+        if op == "dm_no":
+            return ([], vuelta)
+        return _Duda.on(s, op, txt)
+
+
+@etapa("ex_redirige")
+class _ExRedirige:
+    @staticmethod
+    def ask(s):
+        return [M("Entendemos{}. Si tu pareja no quiere firmar, o no tienes la certeza de que lo haga, "
+                  "no te preocupes: existe el *Divorcio Incausado*, que no necesita su firma ni su permiso.\n\n"
+                  "¿Cómo ves tu situación?".format(nm(s)),
+                  buttons=[("exr_inc", "No va a firmar"), ("exr_ns", "No estoy seguro"), ("exr_si", "Sí va a firmar")])]
+
+    @staticmethod
+    def on(s, op, txt):
+        volver = s.get("volver") or "cierre"
+        if op == "exr_inc":
+            for k in ("modalidad", "plan_txt", "metodo", "prisa"):
+                s["data"].pop(k, None)
+            s["servicio"] = "incausado"
+            s["data"]["servicio_nombre"] = "Divorcio Incausado"
+            s["data"]["acuerdo"] = "No"
+            s["neg"] = 0
+            s["inicial"] = None
+            s["plan"] = None
+            s["en_oferta"] = False
+            return ([M("Perfecto{}, cambiamos tu trámite a *Divorcio Incausado*. Te haremos unas preguntas "
+                       "para definir la estrategia.".format(nm(s)))], "in_dom")
+        if op == "exr_ns":
+            s["data"]["acuerdo"] = "No está seguro(a)"
+            return ([M("Te recomendamos platicarlo primero con tu pareja. Si acepta, seguimos con el Divorcio "
+                       "Express, que es más rápido y económico; si no, cambiamos a Divorcio Incausado sin "
+                       "ningún problema. Mientras tanto, tu trámite queda como está.")], volver)
+        if op == "exr_si":
+            s["data"]["acuerdo"] = "Sí"
+            return ([M("Perfecto{}, continuamos con tu Divorcio Express.".format(nm(s)))], volver)
         return None
 
 
@@ -1234,7 +1367,71 @@ class _Humano:
 # ---------------------------------------------------------------------------
 # Preguntas frecuentes (se contestan en cualquier momento y se retoma la pregunta)
 # ---------------------------------------------------------------------------
+PALABRAS_PREGUNTA = ("cuanto", "cuanta", "cuantos", "como", "donde", "cuando", "que", "cual", "tienen",
+                     "aceptan", "puedo", "puedes", "y", "pero", "entonces")
+NO_FIRMA = ("no quiere firmar", "no va a firmar", "no quiera firmar", "no firma", "no se si firm",
+            "no esta de acuerdo", "no creo que firme", "se niega a firmar", "no quiere divorciarse",
+            "no quiere el divorcio", "no quiera divorciarse", "no acepta el divorcio", "no acepta firmar")
+DUDOSAS = ("no estoy seguro", "no estoy segura", "no esta seguro", "no esta segura", "quiza no", "tal vez no",
+           "a lo mejor no", "no sabe si", "no se si quiera", "no se si acepte", "se niega", "no acepta")
+SOBRE_PAREJA = ("firm", "pareja", "espos", "marido", "mi mujer", "divorci", " el ", " ella ")
+
+
+def no_firma(low):
+    if any(w in low for w in NO_FIRMA):
+        return True
+    t = " " + low + " "
+    return any(w in low for w in DUDOSAS) and any(w in t for w in SOBRE_PAREJA)
+
+
+
 def faq(s, low):
+    """Junta hasta 3 respuestas cuando el cliente pregunta varias cosas en un mensaje."""
+    k = s.get("servicio")
+    out = []
+    if no_firma(low) and k != "express":
+        out.append("Si tu pareja no quiere firmar, existe el *Divorcio Incausado*: no necesitas su firma "
+                   "ni su permiso para divorciarte.")
+    if "pension" in low:
+        if k == "express":
+            out.append("*Sobre la pensión:* en el Divorcio Express queda definida en el convenio que ambos "
+                       "firman (monto, forma y fechas de pago), y el juez lo aprueba.")
+        elif k == "incausado":
+            out.append("*Sobre la pensión:* al contratar el Divorcio Incausado, el trámite de pensión "
+                       "alimenticia va incluido. El abogado define la mejor estrategia según tu caso.")
+        else:
+            out.append("*Sobre la pensión:* la fija un juez, tomando en cuenta las necesidades de tus hijos "
+                       "y las posibilidades de quien debe darla.")
+    if any(w in low for w in ("bienes", "la casa", "terreno", "el carro", "propiedad", "propiedades")):
+        if k == "incausado":
+            out.append("*Sobre los bienes:* en tu asesoría el abogado define la mejor estrategia según tu "
+                       "caso, para cuidar tus intereses.")
+        else:
+            out.append("*Sobre los bienes:* en el convenio pueden dejar definida la división de los bienes "
+                       "que tengan en común.")
+    if any(w in low for w in ("custodia", "convivencia", "con quien se quedan", "mis hijos", "los ninos")):
+        if k == "incausado":
+            out.append("*Sobre tus hijos:* la custodia y las convivencias se definen con la estrategia que "
+                       "el abogado arma según tu caso.")
+        else:
+            out.append("*Sobre tus hijos:* el convenio deja por escrito la custodia y las convivencias, "
+                       "para que todo quede claro y protegido.")
+    if any(w in low for w in ("juzgado", "tengo que ir", "cuantas veces", "audiencia")) and "ratific" not in low:
+        if k == "incausado":
+            out.append("*Sobre el juzgado:* acudes dos veces, primero a ratificar tu demanda y después a la "
+                       "audiencia preliminar. En ambas te acompañamos.")
+        elif k == "pension":
+            out.append("*Sobre el juzgado:* acudes solo tú a una cita, con tu INE.")
+        else:
+            out.append("*Sobre el juzgado:* hay una sola cita, 15 a 20 días después de presentar la demanda, "
+                       "a la que acuden ambos.")
+    base = _faq_base(s, low)
+    if base and not (out and base.startswith("Con gusto te seguimos atendiendo")):
+        out.append(base)
+    return "\n\n".join(out[:3]) if out else None
+
+
+def _faq_base(s, low):
     k = s.get("servicio")
     if any(w in low for w in ("total", "cuanto voy a pagar", "cuanto termino pagando", "cuanto seria todo")):
         return TOTAL_TXT
@@ -1283,6 +1480,11 @@ def faq(s, low):
     return None
 
 
+ETAPAS_CIERRE = ("cierre", "fin_tipo", "etapas", "semanal", "plan", "obj1", "obj_precio", "dos_exh",
+                 "obj_pensar", "oferta", "duda_mas")
+ETAPAS_REDIRIGE = ETAPAS_CIERRE + ("duda", "ex_hijos", "ex_bienes", "ex_ciudad", "ex_prisa", "acc_nombre",
+                                   "acc_pareja", "acc_metodo", "pv_horario", "pv_docs", "post")
+
 PELIGRO = ("me golpe", "me pega", "me amenaz", "tengo miedo", "estoy en peligro", "me quiere matar",
            "me esta agrediendo", "violencia")
 
@@ -1321,7 +1523,7 @@ def preguntar(s, stage):
     """Avanza por etapas sin pregunta (ask vacío) hasta llegar a una con pregunta."""
     for _ in range(6):
         msgs = ASK[stage](s)
-        if msgs or stage in ("humano", "espera"):
+        if msgs or stage in ("humano", "espera", "post"):
             s["stage"] = stage
             return msgs
         res = ON[stage](s, None, "")
@@ -1419,10 +1621,24 @@ def handle_message(sender, raw, kind="text"):
     if op is None and stage in ("menu", "otros", "nombre", "duda") and any(p in low for p in PELIGRO):
         return urgente(s, "Posible situación de violencia o peligro: " + raw.strip()[:150])
 
+    # El cliente de Divorcio Express dice que su pareja quizá no firme: se le redirige.
+    if (op is None and s.get("servicio") == "express" and stage in ETAPAS_REDIRIGE
+            and no_firma(low)):
+        s["volver"] = "post" if stage in ("post", "pv_horario", "pv_docs") else "cierre"
+        msgs = preguntar(s, "ex_redirige")
+        fijar_opts(s, msgs)
+        return msgs
+    # "Tengo una duda" escrito durante el cierre.
+    if (op is None and stage in ETAPAS_CIERRE and ("duda" in low or "pregunta" in low) and not faq(s, low)):
+        msgs = preguntar(s, "duda")
+        fijar_opts(s, msgs)
+        return msgs
+
     res = None
-    es_pregunta = "?" in raw or low.split(" ")[0] in (
-        "cuanto", "cuanta", "cuantos", "como", "donde", "cuando", "que", "cual", "tienen", "aceptan", "puedo", "puedes")
-    if op is None and stage != "duda" and (es_pregunta or s.get("opts")) and faq(s, low):
+    es_pregunta = "?" in raw or low.split(" ")[0] in PALABRAS_PREGUNTA
+    en_menu = stage in ("menu", "otros") and detectar_servicio(low)
+    if (op is None and stage not in ("duda", "post") and not en_menu
+            and (es_pregunta or s.get("opts")) and faq(s, low)):
         res = None
     else:
         res = ON[stage](s, op, raw)
@@ -1447,14 +1663,7 @@ def handle_message(sender, raw, kind="text"):
         r2 = ON["menu"](s, nxt[5:], "")
         pre = pre + r2[0]
         nxt = r2[1]
-    if nxt == "humano":
-        s["stage"] = "humano"
-        s["opts"] = []
-        return pre
     ask = preguntar(s, nxt)
-    if s["stage"] == "humano":
-        s["opts"] = []
-        return pre + ask
     out = unir(pre, ask)
     fijar_opts(s, ask)
     return out
