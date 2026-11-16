@@ -19,6 +19,17 @@ botones y listas, agradece cada dato, sigue preguntando y cierra por forma de pa
    dice que su pareja quizá no firme, lo redirige a Divorcio Incausado.
 6. "baja" detiene los mensajes; "menú" regresa al menú.
 
+## Retención
+
+- Si el cliente se despide ("gracias", "luego les aviso") o dice que no puede
+  pagar durante el cierre, el bot pregunta qué no le convenció y ofrece un plan
+  a la medida: pago inicial de oferta y plazo más largo (`PLAZOS_EXTRA`), sin
+  subir el margen más allá del máximo de `PLANES`.
+- Recordatorio a los 10 minutos de silencio y otro a las 20 horas (solo en el
+  cierre), siempre dentro de las 24 horas del último mensaje del cliente.
+- Lo que el cliente cuenta fuera del guion se anota en el expediente; si
+  menciona otro asunto (sucesiones, laboral, etc.) se registra como interés.
+
 ## Cambiar precios o plazos
 
 En `webhook.py`, al inicio: `SERVICIOS` (precio de contado, pago inicial,

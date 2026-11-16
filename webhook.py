@@ -56,6 +56,9 @@ SERVICIOS = {
 }
 # semanas -> % de aumento por financiamiento. Tope: 14 semanas.
 PLANES = {3: 35, 4: 38, 6: 45, 8: 58, 12: 70, 14: 78}
+# Plan a la medida (rescate): se alarga el plazo SIN subir el margen más allá del máximo de PLANES.
+PLAZOS_EXTRA = (16, 18, 20, 24)
+AVISO_INACTIVIDAD_MIN = 10      # minutos de silencio antes del primer recordatorio
 OFERTA_HORAS = 24
 RECORDATORIO_HORAS = 20
 CITA_PRESENCIAL = 500
@@ -69,7 +72,7 @@ def pesos(n):
 def plan_semanal(servicio, semanas, inicial):
     """Devuelve {semanas, semanal, ratificacion, total} para un plan."""
     s = SERVICIOS[servicio]
-    total = s["base"] * (100 + PLANES[semanas]) // 100
+    total = s["base"] * (100 + PLANES.get(semanas, max(PLANES.values()))) // 100
     resto = total - inicial
     if s["pago_ratificacion"] and semanas >= 6:
         semanal = math.ceil(resto / (semanas + 3))
@@ -237,7 +240,36 @@ ETIQUETAS = [
     ("metodo", "Medio de pago"), ("cita_tipo", "Tipo de asesoría"),
     ("cita_cuando", "Día y horario"), ("motivo", "Motivo"), ("dudas", "Dudas pendientes"),
     ("horario_contacto", "Horario para contactar"), ("documentos", "Documentos"),
+    ("objecion", "Qué lo detiene"), ("situacion", "Situación que describió"),
+    ("interes_adicional", "Otros servicios de interés"),
 ]
+
+
+def anotar(s, clave, texto):
+    """Agrega texto a un campo del expediente sin repetirlo."""
+    prev = s["data"].get(clave) or ""
+    texto = texto.strip()[:200]
+    if texto and texto not in prev:
+        s["data"][clave] = (prev + " | " + texto)[:600] if prev else texto
+
+
+OTROS_TEMAS = [
+    (("testamento", "herencia", "sucesion", "intestad", "heredar"), "testamentos y sucesiones"),
+    (("despido", "me despidieron", "me corrieron", "liquidacion", "finiquito", "laboral"), "asuntos laborales"),
+    (("acta de divorcio",), "el trámite de tu acta de divorcio"),
+    (("no me deja ver", "no me dejan ver", "convivencia"), "la convivencia con tus hijos"),
+    (("registrar una marca", "mi marca", "mi empresa", "constituir", "un contrato"), "contratos, marcas y empresas"),
+]
+
+
+def venta_adicional(s, low):
+    """Si el cliente menciona un asunto de otro servicio, se anota y se le ofrece."""
+    for claves, nombre in OTROS_TEMAS:
+        if any(c in low for c in claves):
+            anotar(s, "interes_adicional", nombre)
+            return ("También podemos ayudarte con *{}*. Lo anotamos en tu expediente para que nuestro "
+                    "equipo te dé los detalles.".format(nombre))
+    return None
 
 
 def resumen(s):
@@ -853,12 +885,8 @@ def negativa(s):
     s["neg"] += 1
     if s["neg"] == 1:
         return ([], "obj1")
-    if svc(s)["oferta"] and not s["offer_used"]:
-        s["offer_used"] = True
-        s["offer_ts"] = time.time()
-        s["reminded"] = False
-        s["inicial"] = svc(s)["oferta"]
-        return ([], "oferta")
+    if not s.get("medida_vista"):
+        return ([], "a_medida")
     if svc(s)["oferta"] and s["offer_ts"] and time.time() - s["offer_ts"] < OFERTA_HORAS * 3600:
         return ([], "oferta_vigencia")
     return ([M("Gracias por tu tiempo y tu confianza{}. Aquí seguimos para cuando decidas "
@@ -968,9 +996,93 @@ class _Semanal:
                 if plan_semanal(s["servicio"], sem, inicial(s))["semanal"] <= monto:
                     s["plan"] = sem
                     return ([], "plan")
-            s["plan"] = max(PLANES)
-            return ([M("El pago semanal más bajo que manejamos es el del plan de {} semanas."
-                       .format(max(PLANES)))], "plan")
+            for sem in PLAZOS_EXTRA:
+                if plan_semanal(s["servicio"], sem, inicial(s))["semanal"] <= monto:
+                    s["plan"] = sem
+                    return ([M("Con gusto{}, ajustamos el plazo para que tus pagos sean más cómodos.".format(nm(s)))], "plan")
+            return ([], "a_medida")
+        return None
+
+
+def activar_oferta(s):
+    """El plan a la medida inicia con el pago de oferta mientras esté vigente (24 h)."""
+    v = svc(s)
+    if not v["oferta"]:
+        return
+    if not s["offer_used"]:
+        s["offer_used"] = True
+        s["offer_ts"] = time.time()
+        s["reminded"] = False
+    if time.time() - s["offer_ts"] < OFERTA_HORAS * 3600:
+        s["inicial"] = v["oferta"]
+        s["en_oferta"] = True
+
+
+def todas_las_semanas():
+    return sorted(set(PLANES) | set(PLAZOS_EXTRA))
+
+
+@etapa("a_medida")
+class _AMedida:
+    @staticmethod
+    def ask(s):
+        activar_oferta(s)
+        s["medida_vista"] = True
+        rows = []
+        for sem in sorted(todas_las_semanas(), reverse=True):
+            p = plan_semanal(s["servicio"], sem, inicial(s))
+            desc = "{} pagos semanales".format(sem)
+            if p["ratificacion"]:
+                desc += " + un pago antes de ratificar"
+            rows.append(("sem_{}".format(sem), "{} por semana".format(pesos(p["semanal"])), desc))
+        return [M("Queremos que te quedes con nosotros{}. 🤝 Contarías con abogados expertos, 15 años de "
+                  "experiencia y la mejor asesoría.\n\n"
+                  "Por eso te armamos un *plan exclusivo a tu medida*: inicias con solo *{}* y ajustamos "
+                  "el plazo para que tus pagos sean cómodos.\n\n"
+                  "¿*Cuánto podrías pagar por semana*? Toca *Ver pagos* y elige, o escríbenos la cantidad 👇".format(
+                      nm(s), pesos(inicial(s))),
+                  rows=rows[:10], list_button="Ver pagos")]
+
+    @staticmethod
+    def on(s, op, txt):
+        if op and op.startswith("sem_"):
+            s["plan"] = int(op[4:])
+            return ([], "plan")
+        m = re.search(r"\d[\d,\.]*", txt)
+        if m:
+            try:
+                monto = float(m.group(0).replace(",", ""))
+            except ValueError:
+                return None
+            for sem in todas_las_semanas():
+                if plan_semanal(s["servicio"], sem, inicial(s))["semanal"] <= monto:
+                    s["plan"] = sem
+                    return ([], "plan")
+            s["plan"] = max(todas_las_semanas())
+            minimo = plan_semanal(s["servicio"], s["plan"], inicial(s))["semanal"]
+            return ([M("Gracias por tu confianza{}. El pago más cómodo que podemos ofrecerte es de {} por "
+                       "semana.".format(nm(s), pesos(minimo)))], "plan")
+        return None
+
+
+@etapa("nudge")
+class _Nudge:
+    """Recordatorio por inactividad durante el cierre."""
+    @staticmethod
+    def ask(s):
+        return [M("{}seguimos aquí para ayudarte. 🙂 ¿Qué te pareció tu plan? Si lo necesitas, te armamos "
+                  "uno *exclusivo a tu medida* para que tus pagos sean más cómodos.".format(
+                      (s["data"]["nombre"] + ", ") if s["data"].get("nombre") else "Hola, "),
+                  buttons=[("nd_medida", "Plan a mi medida"), ("nd_duda", "Tengo una duda"), ("nd_no", "No, gracias")])]
+
+    @staticmethod
+    def on(s, op, txt):
+        if op == "nd_medida":
+            return ([], "a_medida")
+        if op == "nd_duda":
+            return ([], "duda")
+        if op == "nd_no":
+            return negativa(s)
         return None
 
 
@@ -997,7 +1109,7 @@ class _Plan:
                 txtp += " + {} antes de ratificar".format(pesos(p["ratificacion"]))
             return aceptar(s, "Financiamiento semanal", txtp, inicial(s))
         if op == "pl_otro":
-            return ([], "semanal")
+            return ([], "a_medida" if s.get("medida_vista") else "semanal")
         if op == "pl_no":
             return negativa(s)
         return None
@@ -1008,21 +1120,22 @@ class _Plan:
 class _Obj1:
     @staticmethod
     def ask(s):
-        return [M("Entendemos{}, y gracias por tu sinceridad. Seguimos aquí atendiendo tu consulta. 🙂\n\n"
-                  "Para orientarte mejor, ¿qué es lo que te detiene en este momento?".format(nm(s)),
-                  buttons=[("o_precio", "El precio"), ("o_pensar", "Necesito pensarlo"), ("o_dudas", "Tengo más dudas")])]
+        return [M("Entendemos{}, y gracias por tu sinceridad. Seguimos aquí para ayudarte: con nosotros "
+                  "tendrías abogados expertos y la mejor asesoría. 🙂\n\n"
+                  "¿Qué fue lo que no te convenció y cómo podemos ayudarte?".format(nm(s)),
+                  buttons=[("o_precio", "Los pagos"), ("o_pensar", "Necesito pensarlo"), ("o_dudas", "Tengo más dudas")])]
 
     @staticmethod
     def on(s, op, txt):
         if op == "o_precio":
-            return ([], "obj_precio")
+            return ([], "a_medida")
         if op == "o_pensar":
             return ([], "obj_pensar")
         if op == "o_dudas":
             return ([], "duda")
-        low = norm(txt)
-        if any(k in low for k in ("caro", "dinero", "no tengo", "no me alcanza", "precio", "mucho")):
-            return ([], "obj_precio")
+        if len(norm(txt)) >= 3:
+            s["data"]["objecion"] = txt.strip()[:200]
+            return ([M("Gracias por decírnoslo{}. Lo tomamos en cuenta.".format(nm(s)))], "a_medida")
         return None
 
 
@@ -1100,8 +1213,9 @@ class _Duda:
     @staticmethod
     def on(s, op, txt):
         r = faq(s, norm(txt))
-        if r:
-            return ([M(r)], "duda_mas")
+        extra = venta_adicional(s, norm(txt))
+        if r or extra:
+            return ([M("\n\n".join(x for x in (r, extra) if x))], "duda_mas")
         prev = s["data"].get("dudas")
         s["data"]["dudas"] = ((prev + " | ") if prev else "") + txt.strip()[:200]
         return ([M(gracias(s) + "Dejamos anotada tu pregunta en tu expediente para que nuestro "
@@ -1264,8 +1378,43 @@ class _PvDocs:
             extra = ("¡Excelente! Tenlos listos para tu visita."
                      if op == "pvd_si" else
                      "No te preocupes, no es necesario para iniciar; nuestro equipo te orienta para obtenerlos.")
-            return ([M(gracias(s) + extra + " Todo quedó anotado en tu expediente. 📁\n\n"
-                       "Si tienes alguna duda, escríbela por aquí y con gusto te atendemos.")], "post")
+            return ([M(gracias(s) + extra + " Todo quedó anotado en tu expediente. 📁")], "pv_mas")
+        return None
+
+
+MAS_SERVICIOS = [
+    ("ms_pension", "Pensión alimenticia", "Trámite de pensión para tus hijos"),
+    ("ms_conv", "Convivencia con hijos", "Cuando no te dejan verlos"),
+    ("ms_acta", "Acta de divorcio", "Trámite de tu acta al terminar"),
+    ("ms_suc", "Testamento o sucesión", "Herencias, testamentos e intestados"),
+    ("ms_lab", "Asunto laboral", "Despidos, liquidaciones y contratos"),
+    ("ms_emp", "Contratos y marcas", "Contratos, marcas y empresas"),
+    ("ms_no", "Ninguno por ahora", "Solo mi trámite actual"),
+]
+
+
+@etapa("pv_mas")
+class _PvMas:
+    @staticmethod
+    def ask(s):
+        rows = [r for r in MAS_SERVICIOS
+                if not (r[0] == "ms_pension" and s.get("servicio") in ("pension", "incausado"))]
+        return [M("Por cierto{}: además de tu trámite, también podemos apoyarte en otros asuntos con la "
+                  "misma atención. ¿Te interesa que te orientemos en alguno? Toca *Ver servicios* 👇".format(nm(s)),
+                  rows=rows, list_button="Ver servicios")]
+
+    @staticmethod
+    def on(s, op, txt):
+        nombres = {r[0]: r[1] for r in MAS_SERVICIOS}
+        if op == "ms_no":
+            return ([M("Perfecto{}. Si más adelante necesitas algo, aquí estamos. Cualquier duda sobre tu "
+                       "trámite, escríbela por aquí y con gusto te atendemos. 🤝".format(nm(s)))], "post")
+        if op in nombres:
+            anotar(s, "interes_adicional", nombres[op])
+            print("LEAD " + json.dumps({"tel": s.get("tel"), **s["data"]}, ensure_ascii=False), flush=True)
+            return ([M("¡Con gusto{}! Anotamos tu interés en *{}*. Nuestro equipo te dará los detalles cuando "
+                       "se comunique contigo.\n\nSi tienes alguna duda, escríbela por aquí.".format(
+                           nm(s), nombres[op]))], "post")
         return None
 
 
@@ -1282,8 +1431,10 @@ class _Post:
         if not low:
             return ([], "post")
         r = faq(s, low)
-        if r:
-            return ([M(r + "\n\n¿Tienes alguna otra duda? Con gusto te atendemos.")], "post")
+        extra = venta_adicional(s, low)
+        if r or extra:
+            return ([M("\n\n".join(x for x in (r, extra) if x)
+                       + "\n\n¿Tienes alguna otra duda? Con gusto te atendemos.")], "post")
         if low in ("gracias", "muchas gracias", "ok gracias", "mil gracias", "gracias muy amable"):
             return ([M("¡Gracias a ti{}! Estamos para servirte. 🤝".format(nm(s)))], "post")
         if low in ("hola", "buenas", "buenos dias", "buenas tardes", "buenas noches", "buen dia"):
@@ -1298,6 +1449,11 @@ class _Post:
             s["data"]["dudas"] = ((prev + " | ") if prev else "") + txt.strip()[:200]
             return ([M(gracias(s) + "Anotamos tu pregunta en tu expediente para que nuestro equipo jurídico "
                        "te la responda a detalle según tu caso.")], "post")
+        if len(low.split()) >= 6 and s.get("notas_post", 0) < 5:
+            s["notas_post"] = s.get("notas_post", 0) + 1
+            anotar(s, "situacion", txt)
+            return ([M(gracias(s) + "Anotamos lo que nos cuentas en tu expediente para que nuestro equipo "
+                       "jurídico lo revise con detalle.")], "post")
         return ([], "post")
 
 
@@ -1310,7 +1466,7 @@ class _DudaMas:
 
     @staticmethod
     def on(s, op, txt):
-        vuelta = "oferta" if s.get("en_oferta") else "cierre"
+        vuelta = "a_medida" if s.get("medida_vista") else "cierre"
         if op == "dm_si":
             return ([], "duda")
         if op == "dm_no":
@@ -1481,7 +1637,15 @@ def _faq_base(s, low):
 
 
 ETAPAS_CIERRE = ("cierre", "fin_tipo", "etapas", "semanal", "plan", "obj1", "obj_precio", "dos_exh",
-                 "obj_pensar", "oferta", "duda_mas")
+                 "obj_pensar", "oferta", "duda_mas", "a_medida", "nudge")
+SIN_DINERO = ("no tengo dinero", "no tengo el dinero", "no me alcanza", "no puedo pagar", "no puedo pagarlo",
+              "muy caro", "esta caro", "es caro", "es mucho", "no tengo para", "no cuento con", "ahorita no puedo",
+              "no tengo ahorita", "sin dinero", "no traigo", "no completo", "no tengo tanto", "muy alto", "muy altos")
+SE_DESPIDE = ("gracias", "muchas gracias", "ok gracias", "okey gracias", "gracias luego", "luego", "despues",
+              "al rato", "lo pienso", "lo voy a pensar", "lo pensare", "dejame pensarlo", "deja lo pienso",
+              "te aviso", "les aviso", "yo les aviso", "luego les escribo", "luego les aviso", "lo checo",
+              "lo platico", "lo voy a platicar", "adios", "bye", "hasta luego", "no gracias", "gracias por la informacion",
+              "gracias por la info", "ya vere", "voy a ver", "lo consulto")
 ETAPAS_REDIRIGE = ETAPAS_CIERRE + ("duda", "ex_hijos", "ex_bienes", "ex_ciudad", "ex_prisa", "acc_nombre",
                                    "acc_pareja", "acc_metodo", "pv_horario", "pv_docs", "post")
 
@@ -1544,6 +1708,12 @@ def fijar_opts(s, msgs):
             s["opts"] = [(b[0], b[1]) for b in m["buttons"]]
         elif m.get("rows"):
             s["opts"] = [(r[0], r[1]) for r in m["rows"]]
+    # Se recuerda de qué etapa es cada botón, por si el cliente toca uno de un mensaje anterior.
+    hist = s.setdefault("hist", {})
+    for oid, _t in s["opts"]:
+        hist[oid] = s["stage"]
+    while len(hist) > 60:
+        hist.pop(next(iter(hist)))
 
 
 def unir(pre, ask):
@@ -1566,6 +1736,7 @@ def handle_message(sender, raw, kind="text"):
     s["tel"] = sender
     previo = s.get("last_in") or 0
     s["last_in"] = now
+    s["avisos"] = 0
     low = norm(raw)
 
     if s["opted_out"]:
@@ -1599,6 +1770,8 @@ def handle_message(sender, raw, kind="text"):
             return msgs
 
     if s["stage"] == "nuevo":
+        if len(low.split()) >= 6:
+            anotar(s, "situacion", raw)
         destino = detectar_servicio(low)
         if destino:
             s["intent"] = destino
@@ -1618,6 +1791,12 @@ def handle_message(sender, raw, kind="text"):
 
     stage = s["stage"]
     op = elegir(s, raw.strip())
+    viejo = s.get("hist", {}).get(raw.strip())
+    if op is None and viejo and viejo in ASK and viejo not in ("menu", "otros") and stage not in ("post", "humano"):
+        # Botón de un mensaje anterior: se retoma esa etapa.
+        s["stage"] = stage = viejo
+        fijar_opts(s, ASK[viejo](s))
+        op = elegir(s, raw.strip())
     if stage in ("menu", "otros") and low.isdigit():
         op = "m" + low if 1 <= int(low) <= 9 else None
     if op is None and stage in ("menu", "otros", "nombre", "duda") and any(p in low for p in PELIGRO):
@@ -1636,6 +1815,20 @@ def handle_message(sender, raw, kind="text"):
         fijar_opts(s, msgs)
         return msgs
 
+    # El cliente se despide o dice que no puede pagar durante el cierre: se intenta retenerlo.
+    if op is None and stage in ETAPAS_CIERRE and not faq(s, low):
+        r_ret = None
+        if any(w in low for w in SIN_DINERO):
+            s["neg"] = max(s["neg"], 1)
+            anotar(s, "objecion", raw)
+            r_ret = ([], "a_medida") if not (stage == "a_medida") else None
+        elif low in SE_DESPIDE or (low.startswith("gracias") and len(low.split()) <= 5):
+            r_ret = negativa(s)
+        if r_ret:
+            ask = preguntar(s, r_ret[1])
+            fijar_opts(s, ask)
+            return unir(r_ret[0], ask)
+
     res = None
     es_pregunta = "?" in raw or low.split(" ")[0] in PALABRAS_PREGUNTA
     en_menu = stage in ("menu", "otros") and detectar_servicio(low)
@@ -1649,8 +1842,25 @@ def handle_message(sender, raw, kind="text"):
         r = faq(s, low)
         ask = ASK[stage](s)
         fijar_opts(s, ask)
-        if r:
+        if r and not (stage in ("menu", "otros") and len(low.split()) >= 6):
             return unir([M(r)], ask)
+        extra = venta_adicional(s, low)
+        largo = len(low.split()) >= 6
+        if stage in ("menu", "otros") and (largo or extra):
+            # Asunto que no está en el menú: se anota y se ofrece asesoría.
+            s["data"]["motivo"] = raw.strip()[:200]
+            ask = preguntar(s, "ci_tipo")
+            fijar_opts(s, ask)
+            return [M("Gracias por contárnoslo{}. Por supuesto que podemos ayudarte. Lo más conveniente es "
+                      "que uno de nuestros abogados revise tu caso en una asesoría.".format(nm(s)))] + ask
+        if largo or extra:
+            anotar(s, "situacion", raw)
+            partes = ["Gracias por contárnoslo{}. Lo anotamos en tu expediente para que nuestro equipo "
+                      "jurídico lo revise con detalle.".format(nm(s))]
+            if extra:
+                partes.append(extra)
+            partes.append("Para seguir avanzando con tu trámite 👇")
+            return unir([M("\n\n".join(partes))], ask)
         s["misses"] += 1
         aviso = "Para continuar, elige una de las opciones 👇" if s["opts"] else "¿Nos lo puedes escribir de nuevo, por favor?"
         if s["misses"] >= 3:
@@ -1733,12 +1943,51 @@ def send_messages(to, messages):
 # ---------------------------------------------------------------------------
 # Recordatorio de la oferta (solo dentro de las 24 h del último mensaje del cliente)
 # ---------------------------------------------------------------------------
+SIN_AVISO = ("nuevo", "nombre", "post", "espera", "humano", "oferta_vigencia", "pv_horario", "pv_docs",
+             "pv_mas", "nudge")
+
+
+def revisar_inactividad(now):
+    """Un recordatorio a los 10 minutos de silencio y otro a las 20 horas (solo en el cierre),
+    siempre dentro de las 24 horas del último mensaje del cliente."""
+    enviados = []
+    for tel, s in list(SESSIONS.items()):
+        if s.get("opted_out") or not s.get("last_in"):
+            continue
+        quieto = now - s["last_in"]
+        if quieto >= 23.5 * 3600:
+            continue
+        stage = s.get("stage")
+        avisos = s.get("avisos", 0)
+        if avisos == 0 and quieto >= AVISO_INACTIVIDAD_MIN * 60 and stage not in SIN_AVISO:
+            s["avisos"] = 1
+            if stage in ETAPAS_CIERRE:
+                msgs = preguntar(s, "nudge")
+            else:
+                msgs = ASK[stage](s)
+                if msgs:
+                    msgs = [M("¿Sigues ahí{}? 🙂 Con gusto continuamos con tu trámite.".format(nm(s)))] + msgs
+            fijar_opts(s, msgs)
+            enviados.append((tel, msgs))
+        elif avisos == 1 and quieto >= RECORDATORIO_HORAS * 3600 and stage in ETAPAS_CIERRE:
+            s["avisos"] = 2
+            msgs = preguntar(s, "nudge")
+            msgs[0] = dict(msgs[0], text="Hola{}. Seguimos con la mejor disposición de ayudarte con tu trámite. "
+                           "¿Te armamos un plan *exclusivo a tu medida*?".format(nm(s)))
+            fijar_opts(s, msgs)
+            enviados.append((tel, msgs))
+    return enviados
+
+
 def recordatorios():
     while True:
-        time.sleep(300)
+        time.sleep(60)
         try:
             with LOCK:
                 now = time.time()
+                for tel, msgs in revisar_inactividad(now):
+                    if msgs:
+                        send_messages(tel, msgs)
                 for tel, s in list(SESSIONS.items()):
                     if (s.get("stage") == "oferta_vigencia" and not s.get("reminded")
                             and not s.get("opted_out") and s.get("offer_ts")
