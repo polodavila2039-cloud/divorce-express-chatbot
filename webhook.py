@@ -1513,7 +1513,9 @@ def elegir(s, raw):
         return si[0]
     if low in NO and len(no) == 1:
         return no[0]
-    cand = [oid for oid, title in opts if len(low) >= 4 and (low in norm(title) or norm(title) in low)]
+    cand = [oid for oid, title in opts
+            if len(low) >= 4 and (low in norm(title)
+                                  or (len(norm(title)) >= 6 and (" " + norm(title) + " ") in (" " + low + " ")))]
     if len(cand) == 1:
         return cand[0]
     return None
