@@ -58,7 +58,9 @@ SERVICIOS = {
 PLANES = {3: 35, 4: 38, 6: 45, 8: 58, 12: 70, 14: 78}
 # Plan a la medida (rescate): se alarga el plazo SIN subir el margen más allá del máximo de PLANES.
 PLAZOS_EXTRA = (16, 18, 20, 24)
-AVISO_INACTIVIDAD_MIN = 10      # minutos de silencio antes del primer recordatorio
+# Minutos de silencio antes de cada recordatorio (se pueden cambiar en Render sin tocar el código).
+AVISO_1_MIN = float(os.environ.get("AVISO_1_MIN", "2"))    # primer aviso
+AVISO_2_MIN = float(os.environ.get("AVISO_2_MIN", "7"))    # plan de emergencia (solo en el cierre)
 OFERTA_HORAS = 24
 RECORDATORIO_HORAS = 20
 CITA_PRESENCIAL = 500
@@ -1948,8 +1950,9 @@ SIN_AVISO = ("nuevo", "nombre", "post", "espera", "humano", "oferta_vigencia", "
 
 
 def revisar_inactividad(now):
-    """Un recordatorio a los 10 minutos de silencio y otro a las 20 horas (solo en el cierre),
-    siempre dentro de las 24 horas del último mensaje del cliente."""
+    """Recordatorios por silencio del cliente, siempre dentro de las 24 h de su último mensaje:
+    1) a los AVISO_1_MIN minutos; 2) a los AVISO_2_MIN, el plan de emergencia (solo en el cierre);
+    3) a las 20 horas, un último intento (solo en el cierre)."""
     enviados = []
     for tel, s in list(SESSIONS.items()):
         if s.get("opted_out") or not s.get("last_in"):
@@ -1959,7 +1962,8 @@ def revisar_inactividad(now):
             continue
         stage = s.get("stage")
         avisos = s.get("avisos", 0)
-        if avisos == 0 and quieto >= AVISO_INACTIVIDAD_MIN * 60 and stage not in SIN_AVISO:
+        msgs = None
+        if avisos == 0 and quieto >= AVISO_1_MIN * 60 and stage not in SIN_AVISO:
             s["avisos"] = 1
             if stage in ETAPAS_CIERRE:
                 msgs = preguntar(s, "nudge")
@@ -1967,13 +1971,24 @@ def revisar_inactividad(now):
                 msgs = ASK[stage](s)
                 if msgs:
                     msgs = [M("¿Sigues ahí{}? 🙂 Con gusto continuamos con tu trámite.".format(nm(s)))] + msgs
-            fijar_opts(s, msgs)
-            enviados.append((tel, msgs))
-        elif avisos == 1 and quieto >= RECORDATORIO_HORAS * 3600 and stage in ETAPAS_CIERRE:
+        elif avisos == 1 and quieto >= AVISO_2_MIN * 60 and stage in ETAPAS_CIERRE:
             s["avisos"] = 2
+            if not s.get("medida_vista"):
+                s["neg"] = max(s.get("neg", 0), 1)
+                msgs = preguntar(s, "a_medida")
+            else:
+                if stage == "nudge":
+                    stage = "plan" if s.get("plan") else "a_medida"
+                msgs = preguntar(s, stage)
+                if msgs:
+                    msgs = [M("Seguimos aquí{}. Tu plan exclusivo sigue disponible y con gusto lo dejamos "
+                              "listo hoy mismo. 👇".format(nm(s)))] + msgs
+        elif avisos == 2 and quieto >= RECORDATORIO_HORAS * 3600 and stage in ETAPAS_CIERRE:
+            s["avisos"] = 3
             msgs = preguntar(s, "nudge")
             msgs[0] = dict(msgs[0], text="Hola{}. Seguimos con la mejor disposición de ayudarte con tu trámite. "
                            "¿Te armamos un plan *exclusivo a tu medida*?".format(nm(s)))
+        if msgs:
             fijar_opts(s, msgs)
             enviados.append((tel, msgs))
     return enviados
@@ -1981,7 +1996,7 @@ def revisar_inactividad(now):
 
 def recordatorios():
     while True:
-        time.sleep(60)
+        time.sleep(20)
         try:
             with LOCK:
                 now = time.time()
