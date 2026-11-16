@@ -1960,6 +1960,92 @@ def mantener_despierto():
             pass
 
 
+# ---------------------------------------------------------------------------
+# Hoja de expedientes en Google (opcional): una fila por cliente, se actualiza sola.
+# Variables en Render: EXPEDIENTES_URL (la dirección /exec del Apps Script) y EXPEDIENTES_CLAVE.
+# ---------------------------------------------------------------------------
+NOMBRE_ETAPA = {
+    "nombre": "Dio su primer mensaje", "menu": "Viendo el menú", "otros": "Viendo otros servicios",
+    "cierre": "Vio precio y formas de pago", "fin_tipo": "Eligiendo tipo de financiamiento",
+    "etapas": "Vio plan por etapas", "semanal": "Viendo pagos semanales", "plan": "Vio su plan semanal",
+    "obj1": "Dijo que no: se le preguntó por qué", "obj_precio": "Viendo opciones de pago",
+    "obj_pensar": "Lo está pensando", "dos_exh": "Vio dos exhibiciones", "duda": "Con una duda",
+    "duda_mas": "Con una duda", "a_medida": "Vio el plan a su medida", "nudge": "Dejó de contestar en el cierre",
+    "oferta_vigencia": "Oferta con vigencia de 24 h", "espera": "Se despidió sin comprar",
+    "acc_nombre": "Aceptó: dando sus datos", "acc_pareja": "Aceptó: dando sus datos",
+    "acc_metodo": "Aceptó: eligiendo medio de pago", "pv_horario": "Aceptó pagar", "pv_docs": "Aceptó pagar",
+    "pv_mas": "Aceptó pagar", "post": "Atendido: en manos del equipo", "humano": "El equipo lo atiende",
+    "ci_tipo": "Pidiendo asesoría", "ci_cuando": "Pidiendo asesoría", "ex_redirige": "Su pareja quizá no firme",
+}
+
+
+def estado_cliente(s):
+    d = s["data"]
+    if s.get("opted_out"):
+        return "Pidió baja"
+    if d.get("modalidad") and s["stage"] in ("post", "pv_horario", "pv_docs", "pv_mas", "acc_metodo", "humano"):
+        return "ACEPTÓ PAGAR"
+    if s["stage"] in ("acc_nombre", "acc_pareja", "acc_metodo"):
+        return "Aceptó, dando datos"
+    if s["stage"] == "post" and d.get("cita_tipo"):
+        return "Pidió asesoría"
+    if s["stage"] == "post":
+        return "Urgente / pasar a abogado"
+    if s["stage"] == "espera":
+        return "No compró"
+    if s["stage"] in ETAPAS_CIERRE or s["stage"] == "oferta_vigencia":
+        return "En cierre"
+    return "En preguntas"
+
+
+def _celda(v):
+    v = "" if v is None else str(v)
+    return (" " + v) if v[:1] in "=+-@" else v
+
+
+def fila_expediente(s):
+    d = s["data"]
+    local = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() - 6 * 3600))
+    return [[k, _celda(v)] for k, v in [
+        ("Última actualización", local), ("Primer contacto", local), ("Teléfono", s.get("tel", "")),
+        ("Estado", estado_cliente(s)), ("Etapa", NOMBRE_ETAPA.get(s["stage"], s["stage"])),
+        ("Nombre", d.get("nombre_completo") or d.get("f_nombre") or d.get("nombre") or d.get("nombre_whatsapp")),
+        ("Servicio", d.get("servicio_nombre") or d.get("motivo")),
+        ("Forma de pago", d.get("modalidad")), ("Plan elegido", d.get("plan_txt")),
+        ("Medio de pago", d.get("metodo")), ("Horario para contactar", d.get("horario_contacto")),
+        ("Asesoría", " ".join(x for x in (d.get("cita_tipo"), d.get("cita_cuando")) if x)),
+        ("Ciudad", d.get("ciudad")), ("Acuerdo para firmar", d.get("acuerdo")),
+        ("Hijos", d.get("hijos") or d.get("f_hijos") or d.get("pe_hijos")), ("Bienes", d.get("bienes")),
+        ("Pareja", d.get("pareja") or d.get("f_expareja")),
+        ("Qué lo detiene", d.get("objecion")), ("Dudas", d.get("dudas")),
+        ("Situación que describió", d.get("situacion")), ("Otros servicios de interés", d.get("interes_adicional")),
+        ("Documentos", d.get("documentos")), ("Anuncio de origen", d.get("origen")),
+        ("Todos los datos", json.dumps(d, ensure_ascii=False)[:3000]),
+    ]]
+
+
+def _enviar_expediente(url, cuerpo):
+    try:
+        req = urllib.request.Request(url, data=cuerpo, headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=25).read()
+    except Exception as e:  # noqa: BLE001
+        print("ERROR expedientes:", e, flush=True)
+
+
+def registrar_expediente(s):
+    """Manda la fila del cliente a la hoja solo cuando algo cambió."""
+    url = os.environ.get("EXPEDIENTES_URL", "")
+    if not url or not s.get("tel") or s.get("stage") == "nuevo":
+        return
+    fila = fila_expediente(s)
+    huella = hashlib.md5(json.dumps(fila[2:], ensure_ascii=False).encode()).hexdigest()
+    if s.get("sync") == huella:
+        return
+    s["sync"] = huella
+    cuerpo = json.dumps({"clave": os.environ.get("EXPEDIENTES_CLAVE", ""), "fila": fila}).encode()
+    threading.Thread(target=_enviar_expediente, args=(url, cuerpo), daemon=True).start()
+
+
 def construir_payload(to, m):
     base = {"messaging_product": "whatsapp", "to": to}
     if m.get("buttons"):
@@ -2046,6 +2132,7 @@ def recordatorios():
                 for tel, msgs in revisar_inactividad(now):
                     if msgs:
                         send_messages(tel, msgs)
+                        registrar_expediente(SESSIONS[tel])
                 for tel, s in list(SESSIONS.items()):
                     if (s.get("stage") == "oferta_vigencia" and not s.get("reminded")
                             and not s.get("opted_out") and s.get("offer_ts")
@@ -2145,6 +2232,8 @@ def procesar(body):
                             if perfil and c.get("wa_id") == sender:
                                 ses["data"].setdefault("nombre_whatsapp", str(perfil)[:60])
                     send_messages(sender, respuesta)
+                    if ses is not None:
+                        registrar_expediente(ses)
     guardar_sesiones()
 
 

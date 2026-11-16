@@ -41,6 +41,13 @@ oferta) y `PLANES` (semanas y porcentaje de aumento).
 - `APP_SECRET` (recomendada: valida que los avisos vengan de Meta)
 - `HANDOFF_HOURS`, `PUBLIC_URL` (opcionales)
 
+## Hoja de expedientes (Google)
+
+`expedientes_apps_script.gs` se pega en el Apps Script de una hoja de Google y se
+implementa como aplicación web. Con `EXPEDIENTES_URL` y `EXPEDIENTES_CLAVE` en
+Render, el bot mantiene una fila por cliente (teléfono como llave) con su estado,
+etapa, plan elegido y todo lo que contó.
+
 ## Límites conocidos
 
 - Las conversaciones se guardan en memoria. En el plan gratuito de Render el
