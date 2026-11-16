@@ -12,3 +12,5 @@ services:
         sync: false
       - key: WHATSAPP_TOKEN
         sync: false
+      - key: APP_SECRET
+        sync: false

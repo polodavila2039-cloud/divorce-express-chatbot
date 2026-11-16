@@ -1,28 +1,28 @@
 {
   "business": "Divorcio Express Saltillo",
   "currency": "MXN",
-  "notes": "Llenar con las capturas del catálogo de WhatsApp Business. Un producto por entrada. El precio va en pesos mexicanos, sin símbolo en el número si se usa para cálculos, y con formato en el texto del bot.",
+  "notes": "Referencia. Los precios y planes que usa el bot están en webhook.py (SERVICIOS y PLANES).",
   "products": [
     {
-      "benefit": "¿Tu ex pareja no paga pensión a tus hijos? Rápido, económico y sencillo. Tus hijos tienen derecho a recibir pensión y con gusto les ayudamos.",
-      "cta": "Pregunta por financiamiento.",
-      "financing": "$2,500 de enganche y 24 pagos semanales de $599",
-      "highlight": "Aún estás a tiempo para que tus hijos reciban parte del aguinaldo.",
+      "id": "divorcio-express",
+      "name": "DIVORCIO EXPRESS",
+      "price": 5900,
+      "price_text": "$5,900 de contado",
+      "financing": "Pago inicial de $1,500 (oferta especial $900) y el resto por etapas o en pagos semanales, hasta 14 semanas."
+    },
+    {
       "id": "pension-alimenticia",
       "name": "PENSIÓN ALIMENTICIA",
-      "price": 8500,
-      "price_before": 12500,
-      "price_text": "$8,500 de contado (antes $12,500)"
+      "price": 5900,
+      "price_text": "$5,900 de contado",
+      "financing": "Pago inicial de $1,500 (oferta especial $900) y el resto por etapas o en pagos semanales, hasta 14 semanas."
     },
     {
       "id": "divorcio-incausado",
       "name": "DIVORCIO INCAUSADO",
-      "price": 8500,
-      "price_text": "$8,500 de contado",
-      "financing": "Pago inicial de $3,500; el resto de las modalidades y formas de pago las explica el equipo en oficinas (el bot NO cita montos ni plazos del financiamiento).",
-      "benefit": "Sí te puedes divorciar aunque tu pareja no quiera firmar. No necesitas su firma ni su permiso.",
-      "highlight": "Trámite completo con estrategia jurídica definida por el equipo.",
-      "cta": "Pregunta por financiamiento."
+      "price": 12500,
+      "price_text": "$12,500 de contado",
+      "financing": "Pago inicial de $3,500 y el resto por etapas o en pagos semanales con un pago un día antes de la ratificación, hasta 14 semanas."
     }
   ]
 }

@@ -1,40 +1,36 @@
-# Chatbot WhatsApp — Divorcio Express Saltillo
+# Chatbot de WhatsApp — Divorcio Express Saltillo (v8)
 
-Estado: en preparación. Polo eligió la opción 2 (chatbot completo con API).
-Ya tiene API de WhatsApp Business, cuenta de Meta Business y un número.
-Token permanente: guardado por el enlace seguro y verificado el 2026-11-14 (Graph /me = whatsapp-api, id 122107468035539993).
-Phone Number ID: 1422322744300738, verificado el 2026-11-14 por Graph API (+52 1 844 538 0391, Divorcio Express Saltillo).
-WhatsApp Business Account ID: 1600411648433093, verificado el 2026-11-14 por Graph API (phones devuelve el mismo Phone Number ID 1422322744300738).
-Falta: el catálogo completo (nombre, precio, descripción
-de cada producto — se piden por captura, igual que para los videos), y la decisión del hosting del webhook / URL pública. WhatsApp Manager advierte que falta un método de pago válido para enviar mensajes fuera del periodo gratuito.
+Chatbot de ventas guiado. No usa IA que improvise: sigue un guion fijo con
+botones y listas, agradece cada dato, sigue preguntando y cierra por forma de pago.
 
-## Lo que hace el bot
+## Qué hace
 
-1. Saluda y presenta el menú principal con botones.
-2. Muestra el catálogo: nombre, precio y beneficio de cada producto.
-3. Responde lo que más preguntan los clientes:
-   - ¿Cuánto tarda? En Coahuila toma 30-45 días desde que se presenta
-     la solicitud hasta la sentencia final (según el video original).
-   - ¿Hay juicio o conflicto? No, es el proceso más rápido y económico
-     para terminar un matrimonio cuando ambos cónyuges están de acuerdo.
-   - ¿Hay financiamiento? Sí, pregunta por financiamiento.
-4. Toma los datos del cliente (nombre, si es divorcio de mutuo acuerdo,
-   teléfono) y los pasa a Polo para que un humano siga la conversación.
-5. Si el cliente escribe "asesor" / "humano" / "hablar con alguien",
-   el bot avisa que un asesor lo atenderá y deja de contestar solo.
+1. Pide el nombre y muestra el menú de 9 opciones como lista.
+2. Divorcio Express, Divorcio Incausado y Pensión Alimenticia: preguntas de
+   situación con botones, resumen y cierre (contado o financiamiento).
+3. Objeciones: máximo dos insistencias. En Express y Pensión, la segunda
+   negativa activa la oferta de $900, una sola vez y con vigencia de 24 horas.
+4. Planes de pago calculados desde la tabla `PLANES` de `webhook.py`.
+   El chat nunca muestra el total; ese desglose lo entrega el equipo.
+5. Pasa a una persona del equipo solo cuando el cliente acepta pagar, pide
+   una cita o es un caso urgente. Después guarda silencio con ese cliente
+   durante `HANDOFF_HOURS` (24 por defecto).
+6. "baja" detiene los mensajes; "menú" regresa al menú.
 
-## Archivos
+## Cambiar precios o plazos
 
-- `FLOW.md` — guiones exactos de cada mensaje, listos para aprobar.
-- `catalog.json` — primer producto llenado el 2026-11-14: PENSIÓN ALIMENTICIA, $8,500 (antes $12,500), financiamiento $2,500 de enganche y 24 pagos semanales de $599. Faltan los demás productos del catálogo.
-- `webhook.py` — servidor webhook (solo librería estándar de Python).
-  Verifica el webhook de Meta, recibe mensajes y contesta por la
-  Graph API. No guarda ningún token en el código.
-- `README.md` — cómo conectar el webhook en Meta y probarlo.
+En `webhook.py`, al inicio: `SERVICIOS` (precio de contado, pago inicial,
+oferta) y `PLANES` (semanas y porcentaje de aumento).
 
-## Datos que faltan (bloquean la prueba real)
+## Variables en Render
 
-- Token permanente de WhatsApp (enlace seguro ya enviado a Polo).
-- Phone Number ID y WhatsApp Business Account ID.
-- Catálogo completo.
-- Horario de atención y número / persona para pasar los clientes.
+- `WHATSAPP_TOKEN`, `PHONE_NUMBER_ID`, `VERIFY_TOKEN` (obligatorias)
+- `APP_SECRET` (recomendada: valida que los avisos vengan de Meta)
+- `HANDOFF_HOURS`, `PUBLIC_URL` (opcionales)
+
+## Límites conocidos
+
+- Las conversaciones se guardan en memoria. En el plan gratuito de Render el
+  servicio se duerme; al despertar, una conversación a medias se reinicia.
+- El recordatorio de la oferta (a las 20 horas) solo sale si el servicio
+  está despierto.
