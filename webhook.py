@@ -185,10 +185,8 @@ def guardar_sesiones():
 # ---------------------------------------------------------------------------
 # Textos fijos
 # ---------------------------------------------------------------------------
-MENU_ROWS = [
-    ("m1", "Divorcio Express", "Ambos están de acuerdo en firmar"),
-    ("m2", "Divorcio Incausado", "Cuando tu pareja NO quiere firmar"),
-    ("m3", "Pensión alimenticia", "Trámite de pensión para tus hijos"),
+MENU_BOTONES = [("m1", "Divorcio Express"), ("m2", "Divorcio Incausado"), ("m3", "Pensión alimenticia")]
+OTROS_ROWS = [
     ("m4", "Fui demandado/a", "Requiero atención urgente"),
     ("m5", "No veo a mis hijos", "No me dejan convivir con ellos"),
     ("m6", "Citatorio de fiscalía", "Requiero atención urgente"),
@@ -196,6 +194,12 @@ MENU_ROWS = [
     ("m8", "Acta de divorcio", "Tramitar mi acta de divorcio"),
     ("m9", "Agendar una cita", "Asesoría con un abogado"),
 ]
+
+TXT_MENU = ("¿En qué te podemos ayudar? 👇\n\n"
+            "• *Divorcio Express:* ambos están de acuerdo en firmar.\n"
+            "• *Divorcio Incausado:* tu pareja no quiere firmar.\n"
+            "• *Pensión alimenticia:* para tus hijos.\n\n"
+            "Si necesitas otro servicio, escribe *otro*.")
 
 REQUISITOS = (
     "📋 *Requisitos para tu trámite:*\n"
@@ -301,6 +305,16 @@ def detectar_servicio(low):
         return "m2"
     if "pension" in low:
         return "m3"
+    if any(k in low for k in ("me demandaron", "fui demandad", "me llego una demanda", "demandaron")):
+        return "m4"
+    if any(k in low for k in ("citatorio", "fiscalia", "me denunciaron", "centro de empoderamiento", "centro de justicia")):
+        return "m6"
+    if any(k in low for k in ("ver a mis hijos", "no me dejan ver", "convivencia")):
+        return "m5"
+    if "acta de divorcio" in low:
+        return "m8"
+    if any(k in low for k in ("agendar", "una cita", "asesoria")) or low == "cita":
+        return "m9"
     if any(k in low for k in ("divorcio express", "divorcio expres", "mutuo", "de acuerdo en firmar")):
         return "m1"
     return None
@@ -312,8 +326,6 @@ class _Nombre:
     def ask(s):
         return [M("¡Hola! Gracias por escribir a *Divorcio Express Saltillo* ⚖️\n"
                   + CONFIANZA + "\n\n"
-                  "Al continuar aceptas nuestro aviso de privacidad:\n"
-                  + PUBLIC_URL + "/privacidad\n\n"
                   "Para atenderte mejor, ¿cuál es tu *nombre*?")]
 
     @staticmethod
@@ -334,14 +346,16 @@ class _Menu:
     @staticmethod
     def ask(s):
         saludo = "Gracias, {}. ".format(s["data"]["nombre"]) if s["data"].get("nombre") else ""
-        return [M(saludo + "¿En qué te podemos ayudar? Toca *Ver opciones* y elige tu caso 👇",
-                  rows=MENU_ROWS, list_button="Ver opciones")]
+        return [M(saludo + TXT_MENU, buttons=MENU_BOTONES)]
 
     @staticmethod
     def on(s, op, txt):
-        op = op or detectar_servicio(norm(txt))
-        if op is None and norm(txt) in ("cita", "agendar", "agendar cita"):
-            op = "m9"
+        low = norm(txt)
+        if op is None and (low in ("otro", "otros", "otra", "otro servicio", "otros servicios", "mas",
+                                   "mas opciones", "otra cosa", "ninguno", "ninguna")
+                           or low.startswith("otro")):
+            return ([], "otros")
+        op = op or detectar_servicio(low)
         if op is None:
             return None
         # nuevo asunto: se conserva solo el nombre
@@ -386,6 +400,21 @@ class _Menu:
             s["data"]["motivo"] = "Asesoría con un abogado"
             return ([], "ci_tipo")
         return None
+
+
+@etapa("otros")
+class _Otros:
+    @staticmethod
+    def ask(s):
+        return [M("Con gusto{}. Estos son nuestros otros servicios. Toca *Ver servicios* y elige 👇".format(nm(s)),
+                  rows=OTROS_ROWS + [("m0", "Volver al inicio", "Divorcio Express, Incausado o Pensión")],
+                  list_button="Ver servicios")]
+
+    @staticmethod
+    def on(s, op, txt):
+        if op == "m0":
+            return ([], "menu")
+        return _Menu.on(s, op, txt)
 
 
 # ----------------------------- CITAS ---------------------------------------
@@ -1362,8 +1391,7 @@ def handle_message(sender, raw, kind="text"):
         else:
             msgs = preguntar(s, "menu")
             fijar_opts(s, msgs)
-            msgs[0] = dict(msgs[0], text="¡Hola de nuevo, {}! ".format(s["data"]["nombre"])
-                           + "¿En qué te podemos ayudar? Toca *Ver opciones* y elige tu caso 👇")
+            msgs[0] = dict(msgs[0], text="¡Hola de nuevo, {}! ".format(s["data"]["nombre"]) + TXT_MENU)
             return msgs
 
     if s["stage"] == "nuevo":
@@ -1386,9 +1414,9 @@ def handle_message(sender, raw, kind="text"):
 
     stage = s["stage"]
     op = elegir(s, raw.strip())
-    if stage == "menu" and op is None and low.isdigit():
+    if stage in ("menu", "otros") and low.isdigit():
         op = "m" + low if 1 <= int(low) <= 9 else None
-    if op is None and stage in ("menu", "nombre", "duda") and any(p in low for p in PELIGRO):
+    if op is None and stage in ("menu", "otros", "nombre", "duda") and any(p in low for p in PELIGRO):
         return urgente(s, "Posible situación de violencia o peligro: " + raw.strip()[:150])
 
     res = None

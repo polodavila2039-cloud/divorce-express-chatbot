@@ -5,7 +5,7 @@ botones y listas, agradece cada dato, sigue preguntando y cierra por forma de pa
 
 ## Qué hace
 
-1. Pide el nombre y muestra el menú de 9 opciones como lista.
+1. Pide el nombre y muestra los 3 servicios principales con botones; al escribir "otro" muestra los demás.
 2. Divorcio Express, Divorcio Incausado y Pensión Alimenticia: preguntas de
    situación con botones, resumen y cierre (contado o financiamiento).
 3. Objeciones: máximo dos insistencias. En Express y Pensión, la segunda

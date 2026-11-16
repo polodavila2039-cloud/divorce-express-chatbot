@@ -2,7 +2,7 @@
 
 El guion completo vive en `webhook.py`, una etapa por bloque `@etapa(...)`.
 
-Bienvenida y nombre → menú (lista de 9 opciones)
+Bienvenida y nombre → menú (3 botones; "otro" abre la lista de los demás servicios)
 - 1 Divorcio Express: acuerdo → hijos → bienes → ciudad → cuándo iniciar → cierre
 - 2 Divorcio Incausado: acuerdo → domicilio → localización → trabajo → pensión → violencia → formulario → cierre
 - 3 Pensión alimenticia: hijos → trabajo → aporta → ciudad → cierre
