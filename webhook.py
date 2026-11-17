@@ -2000,7 +2000,7 @@ def estado_cliente(s):
 
 def _celda(v):
     v = "" if v is None else str(v)
-    return (" " + v) if v[:1] in "=+-@" else v
+    return (" " + v) if v and v[0] in "=+-@" else v
 
 
 def fila_expediente(s):
