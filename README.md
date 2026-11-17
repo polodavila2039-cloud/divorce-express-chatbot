@@ -48,6 +48,11 @@ implementa como aplicación web. Con `EXPEDIENTES_URL` y `EXPEDIENTES_CLAVE` en
 Render, el bot mantiene una fila por cliente (teléfono como llave) con su estado,
 etapa, plan elegido y todo lo que contó.
 
+Si la hoja no responde o rechaza un registro, el bot lo reintenta solo cada minuto
+hasta que la hoja confirma. Diagnóstico: abrir
+`https://divorce-express-chatbot.onrender.com/expedientes?clave=EXPEDIENTES_CLAVE`
+(muestra pendientes, último envío bueno y último error, y fuerza un reenvío).
+
 ## Límites conocidos
 
 - Las conversaciones se guardan en memoria. En el plan gratuito de Render el

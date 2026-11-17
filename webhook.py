@@ -169,6 +169,7 @@ def inicial(s):
 # Sesiones
 # ---------------------------------------------------------------------------
 SESSIONS = {}
+ARRANQUE = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() - 6 * 3600))
 LOCK = threading.RLock()
 SENT_IDS = []
 SEEN_IDS = []
@@ -2024,26 +2025,83 @@ def fila_expediente(s):
     ]]
 
 
+EXP_EVENTO = threading.Event()
+EXP_ESTADO = {"ultimo_ok": "", "ultimo_error": "", "errores": 0, "enviados": 0}
+
+
+def _hora_local():
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() - 6 * 3600))
+
+
 def _enviar_expediente(url, cuerpo):
+    """Manda una fila al Apps Script. Regresa True solo si la hoja confirma {"ok": true}."""
     try:
         req = urllib.request.Request(url, data=cuerpo, headers={"Content-Type": "application/json"}, method="POST")
-        urllib.request.urlopen(req, timeout=25).read()
+        resp = urllib.request.urlopen(req, timeout=40).read().decode("utf-8", "replace")
+        try:
+            r = json.loads(resp)
+        except ValueError:
+            raise RuntimeError("la hoja no contestó JSON (¿la implementación pide iniciar sesión?): " + resp[:200])
+        if not r.get("ok"):
+            raise RuntimeError("la hoja rechazó el registro: " + str(r.get("error")))
+        EXP_ESTADO["ultimo_ok"] = _hora_local()
+        EXP_ESTADO["enviados"] += 1
+        return True
     except Exception as e:  # noqa: BLE001
+        EXP_ESTADO["ultimo_error"] = "{} — {}".format(_hora_local(), e)
+        EXP_ESTADO["errores"] += 1
         print("ERROR expedientes:", e, flush=True)
+        return False
+
+
+def _huella(s):
+    return hashlib.md5(json.dumps(fila_expediente(s)[2:], ensure_ascii=False).encode()).hexdigest()
+
+
+def pendientes_expediente():
+    return [tel for tel, s in SESSIONS.items()
+            if s.get("tel") and s.get("stage") != "nuevo" and s.get("sync") != _huella(s)]
+
+
+def sincronizar_expedientes():
+    """Manda a la hoja todos los clientes con cambios sin confirmar. Si falla, se reintenta solo."""
+    url = os.environ.get("EXPEDIENTES_URL", "").strip()
+    if not url:
+        EXP_ESTADO["ultimo_error"] = "Falta la variable EXPEDIENTES_URL en Render"
+        return
+    clave = os.environ.get("EXPEDIENTES_CLAVE", "").strip()
+    with LOCK:
+        lote = []
+        for tel in pendientes_expediente():
+            s = SESSIONS[tel]
+            lote.append((tel, _huella(s), json.dumps({"clave": clave, "fila": fila_expediente(s)}).encode()))
+    for tel, huella, cuerpo in lote:
+        if _enviar_expediente(url, cuerpo):
+            with LOCK:
+                if tel in SESSIONS:
+                    SESSIONS[tel]["sync"] = huella
+        else:
+            break  # si la hoja no responde, no insistir con todos: se reintenta en el siguiente ciclo
+    if lote:
+        with LOCK:
+            guardar_sesiones()
+
+
+def trabajador_expedientes():
+    sincronizar_expedientes()  # al arrancar, manda todo lo que haya quedado pendiente
+    while True:
+        EXP_EVENTO.wait(60)        # despierta en cuanto hay un cambio, o cada minuto para reintentar
+        EXP_EVENTO.clear()
+        try:
+            sincronizar_expedientes()
+        except Exception as e:  # noqa: BLE001
+            print("ERROR expedientes (ciclo):", e, flush=True)
 
 
 def registrar_expediente(s):
-    """Manda la fila del cliente a la hoja solo cuando algo cambió."""
-    url = os.environ.get("EXPEDIENTES_URL", "")
-    if not url or not s.get("tel") or s.get("stage") == "nuevo":
-        return
-    fila = fila_expediente(s)
-    huella = hashlib.md5(json.dumps(fila[2:], ensure_ascii=False).encode()).hexdigest()
-    if s.get("sync") == huella:
-        return
-    s["sync"] = huella
-    cuerpo = json.dumps({"clave": os.environ.get("EXPEDIENTES_CLAVE", ""), "fila": fila}).encode()
-    threading.Thread(target=_enviar_expediente, args=(url, cuerpo), daemon=True).start()
+    """Avisa al trabajador de la hoja que hay cambios; él los manda y reintenta si fallan."""
+    if s and s.get("tel") and s.get("stage") != "nuevo":
+        EXP_EVENTO.set()
 
 
 def construir_payload(to, m):
@@ -2255,6 +2313,31 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(q.get("hub.challenge", [""])[0].encode())
             return
+        if path == "/expedientes":
+            clave = os.environ.get("EXPEDIENTES_CLAVE", "").strip()
+            if not clave or q.get("clave", [""])[0] != clave:
+                self.send_response(403)
+                self.end_headers()
+                return
+            EXP_EVENTO.set()
+            with LOCK:
+                info = {
+                    "url_configurada": bool(os.environ.get("EXPEDIENTES_URL", "").strip()),
+                    "clientes_en_memoria": len(SESSIONS),
+                    "pendientes_por_subir": len(pendientes_expediente()),
+                    "filas_enviadas_desde_arranque": EXP_ESTADO["enviados"],
+                    "ultimo_envio_bueno": EXP_ESTADO["ultimo_ok"] or "ninguno desde el arranque",
+                    "ultimo_error": EXP_ESTADO["ultimo_error"] or "ninguno",
+                    "errores": EXP_ESTADO["errores"],
+                    "servidor_arranco": ARRANQUE,
+                }
+            body = json.dumps(info, ensure_ascii=False, indent=2).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path in ("/", "/salud", "/health"):
             self.send_response(200)
             self.end_headers()
@@ -2301,6 +2384,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     cargar_sesiones()
     threading.Thread(target=recordatorios, daemon=True).start()
+    threading.Thread(target=trabajador_expedientes, daemon=True).start()
     threading.Thread(target=mantener_despierto, daemon=True).start()
     port = int(os.environ.get("PORT", "8000"))
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
