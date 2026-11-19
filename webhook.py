@@ -2276,6 +2276,25 @@ def procesar(body):
                     kind, text = "audio", "[audio]"
                 elif tipo in ("image", "document", "video", "sticker", "location", "contacts"):
                     text = "[archivo recibido]"
+                elif tipo == "order":
+                    # Solicitud enviada desde el catálogo de WhatsApp.
+                    items = (msg.get("order") or {}).get("product_items") or []
+                    ids = " ".join(str(i.get("product_retailer_id", "")) for i in items)
+                    text = "Me interesa " + re.sub(r"[-_]+", " ", ids).strip() if ids.strip() else "Me interesa un servicio"
+                elif tipo in ("request_welcome", "unsupported", "button_reply", "list_reply"):
+                    # Cliente que abre el chat (o manda algo que WhatsApp no reconoce): se le saluda.
+                    text = "hola"
+                elif tipo == "reaction":
+                    # Una reacción (👍) solo abre conversación si el cliente es nuevo.
+                    if sender not in SESSIONS:
+                        text = "hola"
+                elif tipo and tipo != "system":
+                    text = "hola" if sender not in SESSIONS else "[archivo recibido]"
+                # Pregunta hecha desde un producto del catálogo: se toma en cuenta el servicio.
+                ref_prod = ((msg.get("context") or {}).get("referred_product") or {}).get("product_retailer_id")
+                if ref_prod and text and tipo == "text":
+                    text = text + " (" + re.sub(r"[-_]+", " ", str(ref_prod)) + ")"
+                print("Mensaje de", sender[-4:], "tipo", tipo, flush=True)
                 if text:
                     marcar_leido(mid)
                     respuesta = handle_message(sender, text, kind)
